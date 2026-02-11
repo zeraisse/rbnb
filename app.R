@@ -52,7 +52,6 @@ ui <- fluidPage(
                   value = 4),
       
       hr(),
-      # Petit texte dynamique pour dire combien de lignes il reste
       textOutput("nb_lines")
     ),
     
