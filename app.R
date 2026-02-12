@@ -18,22 +18,33 @@ path_tokyo   <- "data/listings_tokyo.csv"    # Adapte selon ton arborescence
 if(file.exists(path_bangkok)) bangkok <- read.csv(path_bangkok, stringsAsFactors = FALSE)
 if(file.exists(path_tokyo))   tokyo   <- read.csv(path_tokyo, stringsAsFactors = FALSE)
 
-# --- Nettoyage basique pour la vue globale (Collègue) ---
-# (Ton module refera son propre nettoyage plus précis en interne)
+
+# 1. BANGKOK
 if(exists("bangkok")) {
+  # Nettoyage du texte "$1,200.00" -> nombre
   bangkok$price <- as.numeric(gsub("[$,]", "", bangkok$price))
-  bangkok <- bangkok[!is.na(bangkok$price), ]
-  bangkok$price_eur <- bangkok$price / 39
+  
+  # Conversion THB -> EUR (Taux approx : 1 EUR = 37 THB)
+  bangkok$price_eur <- round(bangkok$price / 37, 2)
+  
+  # SUPPRESSION DES OUTLIERS (Correction des millions)
+  # On ne garde que les prix entre 0 et 2000€
+  bangkok <- subset(bangkok, price_eur > 0 & price_eur < 2000)
 }
 
+# 2. TOKYO (Pour l'onglet global de la collègue)
 if(exists("tokyo")) {
   # On garde une version "brute" pour ton module, et une propre pour le dashboard global
   tokyo_clean <- tokyo 
   tokyo_clean$price <- as.numeric(gsub("[$,]", "", tokyo_clean$price))
-  tokyo_clean <- tokyo_clean[!is.na(tokyo_clean$price), ]
-  tokyo_clean$price_eur <- tokyo_clean$price / 160 # Taux de la collègue
+  
+  # Conversion JPY -> EUR (Taux approx : 1 EUR = 160 JPY)
+  tokyo_clean$price_eur <- round(tokyo_clean$price / 160, 2)
+  
+  # SUPPRESSION DES OUTLIERS (Correction des millions)
+  # On ne garde que les prix entre 0 et 2000€
+  tokyo_clean <- subset(tokyo_clean, price_eur > 0 & price_eur < 2000)
 }
-
 
 # -----------------------
 # Interface utilisateur
@@ -88,18 +99,33 @@ ui <- dashboardPage(
 
 server <- function(input, output) {
   
-  # 1. Logique de la collègue (Globale)
-  output$summary_bkk <- renderPrint({ req(bangkok); summary(bangkok$price) })
-  output$summary_tokyo <- renderPrint({ req(tokyo_clean); summary(tokyo_clean$price) })
+  output$summary_bkk <- renderPrint({
+    req(bangkok)
+    # On résume la colonne EUR maintenant
+    cat("Statistiques en Euros (€) :\n")
+    summary(bangkok$price_eur) 
+  })
+  
+  output$summary_tokyo <- renderPrint({
+    req(tokyo_clean)
+    cat("Statistiques en Euros (€) :\n")
+    summary(tokyo_clean$price_eur)
+  })
   
   output$hist_bkk <- renderPlot({
     req(bangkok)
-    hist(bangkok$price, breaks = 50, col = "steelblue", main = "Bangkok", xlab = "Prix")
+    hist(bangkok$price_eur, 
+         breaks = 50, col = "steelblue", border = "white",
+         main = "Bangkok - Distribution des prix (€)", 
+         xlab = "Prix par nuit (€)")
   })
   
   output$hist_tokyo <- renderPlot({
     req(tokyo_clean)
-    hist(tokyo_clean$price, breaks = 50, col = "darkred", main = "Tokyo", xlab = "Prix")
+    hist(tokyo_clean$price_eur, 
+         breaks = 50, col = "darkred", border = "white",
+         main = "Tokyo - Distribution des prix (€)", 
+         xlab = "Prix par nuit (€)")
   })
   
   # 2. Appel de TON Module
