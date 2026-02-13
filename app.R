@@ -1,57 +1,73 @@
+# app.R
+
 library(shiny)
 library(shinydashboard)
 
-# 1. Charger ton module
+# -----------------------
+# Charger les modules
+# -----------------------
 source("modules/tokyo_analyst.R")
+source("modules/bangkok_analyst.R")
 
 # -----------------------
 # Chargement des données
 # -----------------------
+path_bangkok <- "data/listings_bangkok.csv"
+path_tokyo   <- "data/listings_tokyo.csv"
 
-# NOTE : Vérifie bien ces chemins selon ton dossier
-# J'utilise des chemins relatifs standards. 
-# Si ton CSV est dans data/tokyo/listings.csv, adapte ici :
-path_bangkok <- "data/listings_bangkok.csv" # Adapte si besoin
-path_tokyo   <- "data/listings_tokyo.csv"    # Adapte selon ton arborescence
+bangkok <- NULL
+tokyo   <- NULL
 
-# Chargement sécurisé
-if(file.exists(path_bangkok)) bangkok <- read.csv(path_bangkok, stringsAsFactors = FALSE)
-if(file.exists(path_tokyo))   tokyo   <- read.csv(path_tokyo, stringsAsFactors = FALSE)
+if (file.exists(path_bangkok)) bangkok <- read.csv(path_bangkok, stringsAsFactors = FALSE)
+if (file.exists(path_tokyo))   tokyo   <- read.csv(path_tokyo, stringsAsFactors = FALSE)
 
+# -----------------------
+# Préparation "globale" (overview + price stats)
+# -----------------------
+bangkok_clean <- NULL
+tokyo_clean   <- NULL
 
-# 1. BANGKOK
-if(exists("bangkok")) {
-  # Nettoyage du texte "$1,200.00" -> nombre
-  bangkok$price <- as.numeric(gsub("[$,]", "", bangkok$price))
+# BANGKOK
+if (!is.null(bangkok)) {
+  bangkok_clean <- bangkok
   
-  # Conversion THB -> EUR (Taux approx : 1 EUR = 37 THB)
-  bangkok$price_eur <- round(bangkok$price / 37, 2)
+  if (is.character(bangkok_clean$price)) {
+    bangkok_clean$price[bangkok_clean$price == ""] <- NA
+    bangkok_clean$price <- as.numeric(gsub("[\\$,]", "", bangkok_clean$price))
+  }
   
-  # SUPPRESSION DES OUTLIERS (Correction des millions)
-  # On ne garde que les prix entre 0 et 2000€
-  bangkok <- subset(bangkok, price_eur > 0 & price_eur < 2000)
+  bangkok_clean <- bangkok_clean[!is.na(bangkok_clean$price), ]
+  
+  # THB -> EUR (approx : 1 EUR = 39 THB)
+  bangkok_clean$price_eur <- round(bangkok_clean$price / 39, 2)
+  
+  # Outliers (visu global)
+  bangkok_clean <- subset(bangkok_clean, price_eur > 0 & price_eur < 2000)
 }
 
-# 2. TOKYO (Pour l'onglet global de la collègue)
-if(exists("tokyo")) {
-  # On garde une version "brute" pour ton module, et une propre pour le dashboard global
-  tokyo_clean <- tokyo 
-  tokyo_clean$price <- as.numeric(gsub("[$,]", "", tokyo_clean$price))
+# TOKYO
+if (!is.null(tokyo)) {
+  tokyo_clean <- tokyo
   
-  # Conversion JPY -> EUR (Taux approx : 1 EUR = 160 JPY)
+  if (is.character(tokyo_clean$price)) {
+    tokyo_clean$price[tokyo_clean$price == ""] <- NA
+    tokyo_clean$price <- as.numeric(gsub("[\\$,]", "", tokyo_clean$price))
+  }
+  
+  tokyo_clean <- tokyo_clean[!is.na(tokyo_clean$price), ]
+  
+  # JPY -> EUR (approx : 1 EUR = 160 JPY)
   tokyo_clean$price_eur <- round(tokyo_clean$price / 160, 2)
   
-  # SUPPRESSION DES OUTLIERS (Correction des millions)
-  # On ne garde que les prix entre 0 et 2000€
+  # Outliers (visu global)
   tokyo_clean <- subset(tokyo_clean, price_eur > 0 & price_eur < 2000)
 }
 
 # -----------------------
-# Interface utilisateur
+# UI
 # -----------------------
-
 ui <- dashboardPage(
-  skin = "purple", # Un peu de style
+  skin = "purple",
   
   dashboardHeader(title = "R'bnb Dashboard"),
   
@@ -59,34 +75,93 @@ ui <- dashboardPage(
     sidebarMenu(
       menuItem("Global Overview", tabName = "overview", icon = icon("globe")),
       menuItem("Price Stats", tabName = "price", icon = icon("chart-line")),
-      # ICI : Ton nouvel onglet
-      menuItem("Tokyo (Deep Dive)", tabName = "tokyo_advanced", icon = icon("search-plus"), badgeLabel = "New", badgeColor = "green")
+      menuItem("Bangkok (Deep Dive)", tabName = "bangkok_advanced",
+               icon = icon("search-plus"), badgeLabel = "New", badgeColor = "green"),
+      menuItem("Tokyo (Deep Dive)", tabName = "tokyo_advanced",
+               icon = icon("search-plus"))
     )
   ),
   
   dashboardBody(
     tabItems(
       
-      # --- Onglets de la collègue ---
+      # -----------------------
+      # OVERVIEW AMÉLIORÉ
+      # -----------------------
       tabItem(tabName = "overview",
+              
               fluidRow(
-                box(title = "Bangkok - Résumé", width = 6, 
-                    if(exists("bangkok")) verbatimTextOutput("summary_bkk") else "Data not found"),
-                box(title = "Tokyo - Résumé", width = 6, 
-                    if(exists("tokyo_clean")) verbatimTextOutput("summary_tokyo") else "Data not found")
+                valueBoxOutput("bkk_n", width = 3),
+                valueBoxOutput("bkk_med", width = 3),
+                valueBoxOutput("tok_n", width = 3),
+                valueBoxOutput("tok_med", width = 3)
+              ),
+              
+              fluidRow(
+                box(title = "Bangkok - Indicateurs", width = 6, status = "primary", solidHeader = TRUE,
+                    tableOutput("bkk_kpis")),
+                box(title = "Tokyo - Indicateurs", width = 6, status = "primary", solidHeader = TRUE,
+                    tableOutput("tok_kpis"))
+              ),
+              
+              fluidRow(
+                box(title = "Comparaison Bangkok vs Tokyo (Prix médian en €)", width = 12,
+                    status = "warning", solidHeader = TRUE,
+                    plotOutput("compare_median_plot", height = 300))
+              ),
+              
+              fluidRow(
+                box(title = "Bangkok - Types de logement (Top 5)", width = 6,
+                    status = "info", solidHeader = TRUE,
+                    plotOutput("roomtype_bkk", height = 300)),
+                box(title = "Tokyo - Types de logement (Top 5)", width = 6,
+                    status = "info", solidHeader = TRUE,
+                    plotOutput("roomtype_tok", height = 300))
               )
       ),
       
+      # -----------------------
+      # PRICE STATS AMÉLIORÉ (outliers + log + boxplot)
+      # -----------------------
       tabItem(tabName = "price",
+              
               fluidRow(
-                box(title = "Bangkok - Histogramme", width = 6, plotOutput("hist_bkk")),
-                box(title = "Tokyo - Histogramme", width = 6, plotOutput("hist_tokyo"))
+                box(title = "Réglages", width = 12, status = "primary", solidHeader = TRUE,
+                    sliderInput("trim_q",
+                                "Coupe des outliers (quantile max conservé)",
+                                min = 0.95, max = 0.995, value = 0.99, step = 0.005),
+                    radioButtons("scale_mode",
+                                 "Échelle :",
+                                 choices = c("Linéaire (€)" = "linear", "Log(€)" = "log"),
+                                 inline = TRUE)
+                )
+              ),
+              
+              fluidRow(
+                box(title = "Bangkok - Distribution", width = 6, status = "info", solidHeader = TRUE,
+                    plotOutput("hist_bkk")),
+                box(title = "Tokyo - Distribution", width = 6, status = "info", solidHeader = TRUE,
+                    plotOutput("hist_tokyo"))
+              ),
+              
+              fluidRow(
+                box(title = "Comparaison Bangkok vs Tokyo (Boxplot, même coupe)", width = 12,
+                    status = "warning", solidHeader = TRUE,
+                    plotOutput("box_compare", height = 350))
               )
       ),
       
-      # --- TON Onglet (Appel du Module) ---
+      # -----------------------
+      # MODULE BANGKOK
+      # -----------------------
+      tabItem(tabName = "bangkok_advanced",
+              bangkokAnalystUI("my_bangkok_analysis")
+      ),
+      
+      # -----------------------
+      # MODULE TOKYO
+      # -----------------------
       tabItem(tabName = "tokyo_advanced",
-              # On appelle l'UI de ton module avec un ID unique "my_tokyo_analysis"
               tokyoAnalystUI("my_tokyo_analysis")
       )
     )
@@ -94,43 +169,193 @@ ui <- dashboardPage(
 )
 
 # -----------------------
-# Logique serveur
+# SERVER
 # -----------------------
-
 server <- function(input, output) {
   
-  output$summary_bkk <- renderPrint({
-    req(bangkok)
-    # On résume la colonne EUR maintenant
-    cat("Statistiques en Euros (€) :\n")
-    summary(bangkok$price_eur) 
+  # ---- VALUE BOXES ----
+  output$bkk_n <- renderValueBox({
+    req(bangkok_clean)
+    valueBox(
+      value = format(nrow(bangkok_clean), big.mark = " "),
+      subtitle = "Bangkok - annonces (prix OK)",
+      icon = icon("house"),
+      color = "aqua"
+    )
   })
   
-  output$summary_tokyo <- renderPrint({
-    req(tokyo_clean)
-    cat("Statistiques en Euros (€) :\n")
-    summary(tokyo_clean$price_eur)
+  output$bkk_med <- renderValueBox({
+    req(bangkok_clean)
+    valueBox(
+      value = paste0(round(median(bangkok_clean$price_eur, na.rm = TRUE), 0), " €"),
+      subtitle = "Bangkok - prix médian",
+      icon = icon("euro-sign"),
+      color = "green"
+    )
   })
+  
+  output$tok_n <- renderValueBox({
+    req(tokyo_clean)
+    valueBox(
+      value = format(nrow(tokyo_clean), big.mark = " "),
+      subtitle = "Tokyo - annonces (prix OK)",
+      icon = icon("city"),
+      color = "aqua"
+    )
+  })
+  
+  output$tok_med <- renderValueBox({
+    req(tokyo_clean)
+    valueBox(
+      value = paste0(round(median(tokyo_clean$price_eur, na.rm = TRUE), 0), " €"),
+      subtitle = "Tokyo - prix médian",
+      icon = icon("euro-sign"),
+      color = "green"
+    )
+  })
+  
+  # ---- KPI TABLES ----
+  kpi_table <- function(df) {
+    
+    pct_entire <- if ("room_type" %in% names(df)) {
+      round(mean(df$room_type == "Entire home/apt", na.rm = TRUE) * 100, 1)
+    } else NA
+    
+    med_rating <- if ("review_scores_rating" %in% names(df)) {
+      round(median(df$review_scores_rating, na.rm = TRUE), 2)
+    } else NA
+    
+    data.frame(
+      KPI = c("Prix moyen (€)", "Prix médian (€)", "Prix Q1 (€)", "Prix Q3 (€)",
+              "% logements entiers", "Note médiane"),
+      Valeur = c(
+        round(mean(df$price_eur, na.rm = TRUE), 1),
+        round(median(df$price_eur, na.rm = TRUE), 1),
+        round(quantile(df$price_eur, 0.25, na.rm = TRUE), 1),
+        round(quantile(df$price_eur, 0.75, na.rm = TRUE), 1),
+        pct_entire,
+        med_rating
+      ),
+      check.names = FALSE
+    )
+  }
+  
+  output$bkk_kpis <- renderTable({
+    req(bangkok_clean)
+    kpi_table(bangkok_clean)
+  }, striped = TRUE, hover = TRUE, spacing = "s")
+  
+  output$tok_kpis <- renderTable({
+    req(tokyo_clean)
+    kpi_table(tokyo_clean)
+  }, striped = TRUE, hover = TRUE, spacing = "s")
+  
+  # ---- COMPARISON PLOT (Median €) ----
+  output$compare_median_plot <- renderPlot({
+    req(bangkok_clean, tokyo_clean)
+    meds <- c(
+      Bangkok = median(bangkok_clean$price_eur, na.rm = TRUE),
+      Tokyo   = median(tokyo_clean$price_eur, na.rm = TRUE)
+    )
+    barplot(meds,
+            main = "Prix médian par nuit (€)",
+            ylab = "€",
+            col = c("steelblue", "darkred"))
+  })
+  
+  # ---- ROOM TYPE TOP 5 ----
+  output$roomtype_bkk <- renderPlot({
+    req(bangkok_clean)
+    req("room_type" %in% names(bangkok_clean))
+    t <- sort(table(bangkok_clean$room_type), decreasing = TRUE)[1:5]
+    barplot(t, las = 2, col = "steelblue", main = "Bangkok")
+  })
+  
+  output$roomtype_tok <- renderPlot({
+    req(tokyo_clean)
+    req("room_type" %in% names(tokyo_clean))
+    t <- sort(table(tokyo_clean$room_type), decreasing = TRUE)[1:5]
+    barplot(t, las = 2, col = "darkred", main = "Tokyo")
+  })
+  
+  # ---- PRICE STATS (outliers + log + boxplot) ----
+  trim_prices <- function(x, q) {
+    x <- x[!is.na(x)]
+    if (length(x) == 0) return(x)
+    cut <- as.numeric(stats::quantile(x, q, na.rm = TRUE))
+    x[x <= cut]
+  }
   
   output$hist_bkk <- renderPlot({
-    req(bangkok)
-    hist(bangkok$price_eur, 
-         breaks = 50, col = "steelblue", border = "white",
-         main = "Bangkok - Distribution des prix (€)", 
-         xlab = "Prix par nuit (€)")
+    req(bangkok_clean)
+    q <- input$trim_q
+    x <- trim_prices(bangkok_clean$price_eur, q)
+    req(length(x) > 0)
+    
+    if (input$scale_mode == "log") {
+      x <- log(x)
+      hist(x,
+           breaks = 40,
+           col = "steelblue", border = "white",
+           main = paste0("Bangkok - Distribution log(€) (≤ Q", q, ")"),
+           xlab = "log(Prix €)")
+    } else {
+      hist(x,
+           breaks = 40,
+           col = "steelblue", border = "white",
+           main = paste0("Bangkok - Distribution (€) (≤ Q", q, ")"),
+           xlab = "Prix par nuit (€)")
+    }
   })
   
   output$hist_tokyo <- renderPlot({
     req(tokyo_clean)
-    hist(tokyo_clean$price_eur, 
-         breaks = 50, col = "darkred", border = "white",
-         main = "Tokyo - Distribution des prix (€)", 
-         xlab = "Prix par nuit (€)")
+    q <- input$trim_q
+    x <- trim_prices(tokyo_clean$price_eur, q)
+    req(length(x) > 0)
+    
+    if (input$scale_mode == "log") {
+      x <- log(x)
+      hist(x,
+           breaks = 40,
+           col = "darkred", border = "white",
+           main = paste0("Tokyo - Distribution log(€) (≤ Q", q, ")"),
+           xlab = "log(Prix €)")
+    } else {
+      hist(x,
+           breaks = 40,
+           col = "darkred", border = "white",
+           main = paste0("Tokyo - Distribution (€) (≤ Q", q, ")"),
+           xlab = "Prix par nuit (€)")
+    }
   })
   
-  # 2. Appel de TON Module
-  # On lui passe l'ID unique et les données brutes de Tokyo
-  # Le module gérera son propre nettoyage sans casser le reste
+  output$box_compare <- renderPlot({
+    req(bangkok_clean, tokyo_clean)
+    q <- input$trim_q
+    
+    bkk <- trim_prices(bangkok_clean$price_eur, q)
+    tok <- trim_prices(tokyo_clean$price_eur, q)
+    
+    req(length(bkk) > 0, length(tok) > 0)
+    
+    if (input$scale_mode == "log") {
+      boxplot(list(Bangkok = log(bkk), Tokyo = log(tok)),
+              col = c("steelblue", "darkred"),
+              main = paste0("Boxplot log(€) (≤ Q", q, ")"),
+              ylab = "log(Prix €)",
+              outline = FALSE)
+    } else {
+      boxplot(list(Bangkok = bkk, Tokyo = tok),
+              col = c("steelblue", "darkred"),
+              main = paste0("Boxplot (€) (≤ Q", q, ")"),
+              ylab = "Prix par nuit (€)",
+              outline = FALSE)
+    }
+  })
+  
+  # ---- MODULES (données brutes) ----
+  bangkokAnalystServer("my_bangkok_analysis", data_raw = bangkok)
   tokyoAnalystServer("my_tokyo_analysis", data_raw = tokyo)
 }
 
