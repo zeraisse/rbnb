@@ -41,8 +41,8 @@ if (!is.null(bangkok)) {
   # THB -> EUR (approx : 1 EUR = 39 THB)
   bangkok_clean$price_eur <- round(bangkok_clean$price / 39, 2)
   
-  # Outliers (visu global)
-  bangkok_clean <- subset(bangkok_clean, price_eur > 0 & price_eur < 2000)
+  # Outliers de base (très extrêmes)
+  bangkok_clean <- subset(bangkok_clean, price_eur > 0 & price_eur < 20000)
 }
 
 # TOKYO
@@ -59,8 +59,8 @@ if (!is.null(tokyo)) {
   # JPY -> EUR (approx : 1 EUR = 160 JPY)
   tokyo_clean$price_eur <- round(tokyo_clean$price / 160, 2)
   
-  # Outliers (visu global)
-  tokyo_clean <- subset(tokyo_clean, price_eur > 0 & price_eur < 2000)
+  # Outliers de base (très extrêmes)
+  tokyo_clean <- subset(tokyo_clean, price_eur > 0 & price_eur < 20000)
 }
 
 # -----------------------
@@ -121,18 +121,18 @@ ui <- dashboardPage(
       ),
       
       # -----------------------
-      # PRICE STATS AMÉLIORÉ (outliers + log + boxplot)
+      # PRICE STATS (SEUIL EN € + LOG + BOXPLOT)
       # -----------------------
       tabItem(tabName = "price",
               
               fluidRow(
                 box(title = "Réglages", width = 12, status = "primary", solidHeader = TRUE,
-                    sliderInput("trim_q",
-                                "Coupe des outliers (quantile max conservé)",
-                                min = 0.95, max = 0.995, value = 0.99, step = 0.005),
+                    sliderInput("max_eur",
+                                "Prix maximum affiché (€) :",
+                                min = 50, max = 2000, value = 500, step = 50),
                     radioButtons("scale_mode",
                                  "Échelle :",
-                                 choices = c("Linéaire (€)" = "linear", "Log(€)" = "log"),
+                                 choices = c("Linéaire (€)" = "linear"),
                                  inline = TRUE)
                 )
               ),
@@ -145,7 +145,7 @@ ui <- dashboardPage(
               ),
               
               fluidRow(
-                box(title = "Comparaison Bangkok vs Tokyo (Boxplot, même coupe)", width = 12,
+                box(title = "Comparaison Bangkok vs Tokyo (Boxplot)", width = 12,
                     status = "warning", solidHeader = TRUE,
                     plotOutput("box_compare", height = 350))
               )
@@ -278,77 +278,74 @@ server <- function(input, output) {
     barplot(t, las = 2, col = "darkred", main = "Tokyo")
   })
   
-  # ---- PRICE STATS (outliers + log + boxplot) ----
-  trim_prices <- function(x, q) {
+  # ---- PRICE STATS : seuil en € + log + boxplot ----
+  cap_prices <- function(x, max_eur) {
     x <- x[!is.na(x)]
-    if (length(x) == 0) return(x)
-    cut <- as.numeric(stats::quantile(x, q, na.rm = TRUE))
-    x[x <= cut]
+    x <- x[x > 0]
+    x[x <= max_eur]
   }
   
   output$hist_bkk <- renderPlot({
     req(bangkok_clean)
-    q <- input$trim_q
-    x <- trim_prices(bangkok_clean$price_eur, q)
+    max_eur <- input$max_eur
+    x <- cap_prices(bangkok_clean$price_eur, max_eur)
     req(length(x) > 0)
     
     if (input$scale_mode == "log") {
-      x <- log(x)
-      hist(x,
+      hist(log(x),
            breaks = 40,
            col = "steelblue", border = "white",
-           main = paste0("Bangkok - Distribution log(€) (≤ Q", q, ")"),
+           main = paste0("Bangkok - Distribution log(€) (≤ ", max_eur, "€)"),
            xlab = "log(Prix €)")
     } else {
       hist(x,
            breaks = 40,
            col = "steelblue", border = "white",
-           main = paste0("Bangkok - Distribution (€) (≤ Q", q, ")"),
+           main = paste0("Bangkok - Distribution (€) (≤ ", max_eur, "€)"),
            xlab = "Prix par nuit (€)")
     }
   })
   
   output$hist_tokyo <- renderPlot({
     req(tokyo_clean)
-    q <- input$trim_q
-    x <- trim_prices(tokyo_clean$price_eur, q)
+    max_eur <- input$max_eur
+    x <- cap_prices(tokyo_clean$price_eur, max_eur)
     req(length(x) > 0)
     
     if (input$scale_mode == "log") {
-      x <- log(x)
-      hist(x,
+      hist(log(x),
            breaks = 40,
            col = "darkred", border = "white",
-           main = paste0("Tokyo - Distribution log(€) (≤ Q", q, ")"),
+           main = paste0("Tokyo - Distribution log(€) (≤ ", max_eur, "€)"),
            xlab = "log(Prix €)")
     } else {
       hist(x,
            breaks = 40,
            col = "darkred", border = "white",
-           main = paste0("Tokyo - Distribution (€) (≤ Q", q, ")"),
+           main = paste0("Tokyo - Distribution (€) (≤ ", max_eur, "€)"),
            xlab = "Prix par nuit (€)")
     }
   })
   
   output$box_compare <- renderPlot({
     req(bangkok_clean, tokyo_clean)
-    q <- input$trim_q
     
-    bkk <- trim_prices(bangkok_clean$price_eur, q)
-    tok <- trim_prices(tokyo_clean$price_eur, q)
+    max_eur <- input$max_eur
+    bkk <- cap_prices(bangkok_clean$price_eur, max_eur)
+    tok <- cap_prices(tokyo_clean$price_eur, max_eur)
     
     req(length(bkk) > 0, length(tok) > 0)
     
     if (input$scale_mode == "log") {
       boxplot(list(Bangkok = log(bkk), Tokyo = log(tok)),
               col = c("steelblue", "darkred"),
-              main = paste0("Boxplot log(€) (≤ Q", q, ")"),
+              main = paste0("Boxplot log(€) (≤ ", max_eur, "€)"),
               ylab = "log(Prix €)",
               outline = FALSE)
     } else {
       boxplot(list(Bangkok = bkk, Tokyo = tok),
               col = c("steelblue", "darkred"),
-              main = paste0("Boxplot (€) (≤ Q", q, ")"),
+              main = paste0("Boxplot (€) (≤ ", max_eur, "€)"),
               ylab = "Prix par nuit (€)",
               outline = FALSE)
     }
