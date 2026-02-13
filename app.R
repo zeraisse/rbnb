@@ -1,5 +1,3 @@
-# app.R
-
 library(shiny)
 library(shinydashboard)
 
@@ -7,7 +5,8 @@ library(shinydashboard)
 # Charger les modules
 # -----------------------
 source("modules/tokyo_analyst.R")
-source("modules/bangkok_analyst.R")
+source("modules/bangkok_analyst.R") # Assure-toi que ce fichier existe si tu l'appelles
+source("modules/comparison_analyst.R") # <--- NOUVEAU MODULE
 
 # -----------------------
 # Chargement des données
@@ -78,7 +77,11 @@ ui <- dashboardPage(
       menuItem("Bangkok (Deep Dive)", tabName = "bangkok_advanced",
                icon = icon("search-plus"), badgeLabel = "New", badgeColor = "green"),
       menuItem("Tokyo (Deep Dive)", tabName = "tokyo_advanced",
-               icon = icon("search-plus"))
+               icon = icon("search-plus")),
+      
+      # --- NOUVEAU MENU ---
+      menuItem("Comparatif : Note vs Prix", tabName = "comparison_tab", 
+               icon = icon("balance-scale"), badgeLabel = "VS", badgeColor = "orange")
     )
   ),
   
@@ -86,7 +89,7 @@ ui <- dashboardPage(
     tabItems(
       
       # -----------------------
-      # OVERVIEW AMÉLIORÉ
+      # OVERVIEW
       # -----------------------
       tabItem(tabName = "overview",
               
@@ -121,7 +124,7 @@ ui <- dashboardPage(
       ),
       
       # -----------------------
-      # PRICE STATS AMÉLIORÉ (outliers + log + boxplot)
+      # PRICE STATS
       # -----------------------
       tabItem(tabName = "price",
               
@@ -155,7 +158,8 @@ ui <- dashboardPage(
       # MODULE BANGKOK
       # -----------------------
       tabItem(tabName = "bangkok_advanced",
-              bangkokAnalystUI("my_bangkok_analysis")
+              # Utilise tryCatch ou vérifie si la fonction existe pour éviter le crash si le fichier manque
+              if(exists("bangkokAnalystUI")) bangkokAnalystUI("my_bangkok_analysis") else h3("Module Bangkok introuvable")
       ),
       
       # -----------------------
@@ -163,6 +167,13 @@ ui <- dashboardPage(
       # -----------------------
       tabItem(tabName = "tokyo_advanced",
               tokyoAnalystUI("my_tokyo_analysis")
+      ),
+      
+      # -----------------------
+      # NOUVEAU MODULE COMPARATIF
+      # -----------------------
+      tabItem(tabName = "comparison_tab",
+              comparisonUI("my_city_comparison")
       )
     )
   )
@@ -354,9 +365,26 @@ server <- function(input, output) {
     }
   })
   
-  # ---- MODULES (données brutes) ----
-  bangkokAnalystServer("my_bangkok_analysis", data_raw = bangkok)
+  # ---- CORRECTION AJOUTÉE : RÉSUMÉS EN EUROS ----
+  output$summary_bkk <- renderPrint({
+    req(bangkok_clean)
+    cat("Statistiques en EUROS (€) :\n")
+    summary(bangkok_clean$price_eur) 
+  })
+  
+  output$summary_tokyo <- renderPrint({
+    req(tokyo_clean)
+    cat("Statistiques en EUROS (€) :\n")
+    summary(tokyo_clean$price_eur)
+  })
+  
+  # ---- APPEL DES MODULES INDIVIDUELS (Données Brutes) ----
+  if(exists("bangkokAnalystServer")) bangkokAnalystServer("my_bangkok_analysis", data_raw = bangkok)
   tokyoAnalystServer("my_tokyo_analysis", data_raw = tokyo)
+  
+  # ---- APPEL DU MODULE COMPARATIF (Données Propres) ----
+  # Ici on passe les données déjà nettoyées (prix_eur) car on compare des euros
+  comparisonServer("my_city_comparison", bkk_data = bangkok_clean, tokyo_data = tokyo_clean)
 }
 
 shinyApp(ui, server)
